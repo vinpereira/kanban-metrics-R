@@ -1,0 +1,210 @@
+---
+title: "Kanban Metrics with R"
+author: "Vinícius Pereira"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    social: menu
+    source_code: embed
+--- 
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(ggplot2)
+library(dplyr)
+library(reshape2)
+
+# Carrega a planilha de Demandas
+df.demands <- read.csv('/home/vinicius/kanban-metrics-R/metrics/MyTeam_demandas.csv', header = TRUE, sep = ',')
+
+# Carrega a planilha de CFD
+df.cfd <- read.csv('/home/vinicius/kanban-metrics-R/metrics/MyTeam_kanban.csv', header = TRUE, sep = ',')
+
+# Calcula o tempo (dias corridos) em cada coluna do Kanban
+dev.time <- as.numeric((as.Date(as.character(df.demands$Dev), format="%d/%m/%Y") - as.Date(as.character(df.demands$Inicio), format="%d/%m/%Y")), units = 'days')
+aws.dev.time <- as.numeric((as.Date(as.character(df.demands$Hml), format="%d/%m/%Y") - as.Date(as.character(df.demands$Dev), format="%d/%m/%Y")), units = 'days')
+aws.hml.time <- as.numeric((as.Date(as.character(df.demands$PO), format="%d/%m/%Y") - as.Date(as.character(df.demands$Hml), format="%d/%m/%Y")), units = 'days')
+po.time <- as.numeric((as.Date(as.character(df.demands$ProntoPpd), format="%d/%m/%Y") - as.Date(as.character(df.demands$PO), format="%d/%m/%Y")), units = 'days')
+ppd.ready.time <- as.numeric((as.Date(as.character(df.demands$Ppd), format="%d/%m/%Y") - as.Date(as.character(df.demands$ProntoPpd), format="%d/%m/%Y")), units = 'days')
+
+# Calcula Touch Time, Queue Time e Lead Time
+touch.time <- as.numeric(dev.time + aws.dev.time + aws.hml.time, units = 'days')
+queue.time <- as.numeric(po.time + ppd.ready.time, units = 'days')
+lead.time <- as.numeric(touch.time + queue.time, units = 'days')
+
+# Monta um dataframe com os dias corridos calculados
+df.days <- data.frame(df.demands$Indice, 0, dev.time, aws.dev.time, aws.hml.time, po.time, ppd.ready.time, 0)
+colnames(df.days) <- c("Indice", "Backlog", "Desenvolvimento", "AWS Dev", "AWS Hml", "Em Validação", "Pronto p/ Ppd", "Em Pré Produção")
+
+# Denormaliza os dados do dataframe
+df.days.melted <- melt(df.days, id.vars = "Indice")
+colnames(df.days.melted) <- c("Indice","Etapas", "Valores")
+
+# Número de PBI por Sprint
+pbi.by.sprint <- length(df.demands$Sprint) - match(unique(df.demands$Sprint),rev(df.demands$Sprint)) + 1
+
+# Função para calcular confiança com 90%
+calc_conf90 <- function(value) {
+  conf.90 <- t.test(x = value, conf.level = 0.9)
+  return (conf.90$conf.int[2])
+}
+
+# Monta dataframe para uso no Throughput e Qualidade
+sprints <- unique(df.demands$Sprint)
+
+df.throughput <- data.frame(df.demands$Indice, df.demands$Sprint, df.demands$Tipo)
+colnames(df.throughput) <- c("Indice", "Sprint", "Tipo")
+```
+
+MyTeam
+=======================================================================
+
+Row
+-----------------------------------------------------------------------
+
+### Tempo de Entrega das Demandas
+
+```{r Lead Time}
+# Gera o gráfico com os pontos (scatterplot) e as barras (barplot)
+conf.leadtime <- calc_conf90(lead.time)
+
+ggplot(data = df.demands, aes(x = Indice, y = lead.time)) +
+  geom_bar(stat = "identity", data = df.days.melted, aes(fill = Etapas, y = Valores), alpha = 1) +
+  geom_point(aes(shape = Classe, color = Classe, size = Classe)) +
+  geom_text(aes(x = Indice, y = lead.time, label = PBI, vjust = -0.8, angle = 0), size = 3) +
+  scale_shape_manual(values = c(17, 16)) +
+  # scale_color_manual(values = c('red', 'green')) +
+  scale_size_manual(values = c(3, 3)) +
+  geom_vline(xintercept = pbi.by.sprint + 0.5, color = "grey", linetype = "longdash") +
+  annotate("text", x = pbi.by.sprint + 0.5, y = mean(lead.time) + 15, label = paste("Sprint", unique(df.demands$Sprint)), size=4, angle = 90, vjust = -0.5, color = "grey") +
+  scale_x_continuous(breaks = df.demands$Indice) +
+  geom_hline(yintercept = conf.leadtime, color = "red") +
+  geom_text(aes(x = 0, y = conf.leadtime, label = paste("90% de Confiança - ", round(conf.leadtime, 2)), vjust = 2, hjust = 0)) +
+  scale_fill_brewer(palette="Spectral") +
+  labs(x = "Indice", y = 'Dias Corridos') +
+  theme_bw()
+```
+
+### Histograma das Demandas
+
+```{r Histograma}
+df.leadtime <- data.frame(df.demands$Indice, df.demands$Classe, lead.time)
+colnames(df.leadtime) <- c("Indice", "Classe", "LeadTime")
+
+ggplot(data = df.leadtime, aes(x = LeadTime)) +
+  geom_bar(aes(fill = Classe)) + 
+  stat_function(fun = dnorm, color = "black", args = list(mean = mean(lead.time), sd = sd(lead.time))) +
+  # geom_density() +
+  labs(x = "Tempo de Entrega", y = "Frequência") +
+  # scale_fill_manual(values=c('red', 'green')) +
+  theme_bw()
+```
+
+### Entregas das Demandas por Ciclo
+```{r Entregas}
+df.throughput.casted <- dcast(df.throughput, Sprint ~ Tipo)
+df.throughput.casted[df.throughput.casted == 0] <- NA
+
+ggplot(data = df.throughput.casted, aes(x = sprints)) + 
+  geom_point(na.rm = TRUE, aes(y = Valor), size = 7, color = "green", shape = 16) +
+  geom_point(na.rm = TRUE, aes(y = Melhoria), size = 5, color = "blue", shape = 16) +
+  geom_point(na.rm = TRUE, aes(y = Falha), size = 3, color = "red", shape = 16) +
+  # xlim(min(unique(df.throughput$Sprint)), max(unique(df.throughput$Sprint))) +
+  labs(x = "Sprint", y = "Entregas") +
+  theme_bw()
+```
+
+Row
+-----------------------------------------------------------------------
+
+### Qualidade das Demandas por Ciclo
+```{r Qualidade}
+df.quality.casted <- dcast(df.throughput, Sprint ~ Tipo)
+
+Valor.accumulated <- c()
+for (i in 1:length(df.quality.casted$Valor)) {
+  if (i == 1) {
+    Valor.accumulated[i] <- df.quality.casted$Valor[i]  
+  }
+  else {
+    Valor.accumulated[i] <- df.quality.casted$Valor[i] + Valor.accumulated[i - 1]
+  }
+}
+Valor.accumulated[Valor.accumulated == 0] <- NA
+
+Melhoria.accumulated <- c()
+for (i in 1:length(df.quality.casted$Melhoria)) {
+  if (i == 1) {
+    Melhoria.accumulated[i] <- df.quality.casted$Melhoria[i]  
+  }
+  else {
+    Melhoria.accumulated[i] <- df.quality.casted$Melhoria[i] + Melhoria.accumulated[i - 1]
+  }
+}
+Melhoria.accumulated[Melhoria.accumulated == 0] <- NA
+
+Falha.accumulated <- c()
+for (i in 1:length(df.quality.casted$Falha)) {
+  if (i == 1) {
+    Falha.accumulated[i] <- df.quality.casted$Falha[i]  
+  }
+  else {
+    Falha.accumulated[i] <- df.quality.casted$Falha[i] + Falha.accumulated[i - 1]
+  }
+}
+Falha.accumulated[Falha.accumulated == 0] <- NA
+
+ggplot(data = df.quality.casted, aes(x = Sprint, group = 1)) +
+  geom_point(na.rm = TRUE, aes(y = Valor.accumulated), color = "green") +
+  geom_point(na.rm = TRUE, aes(y = Falha.accumulated), color = "red") +
+  geom_point(na.rm = TRUE, aes(y = Melhoria.accumulated), color = "blue") +
+  geom_line(na.rm = TRUE, aes(y = Valor.accumulated, color = "Valor")) + 
+  geom_line(na.rm = TRUE, aes(y = Falha.accumulated, color = "Falha")) +
+  geom_line(na.rm = TRUE, aes(y = Melhoria.accumulated, color = "Melhoria")) +
+  scale_colour_manual(values = c("red", "blue", "green"), name = 'Tipo') +
+  labs(x = "Sprint", y = "Acumulado", title = 'Qualidade da Demanada') +
+  theme_bw()
+```
+
+### Cumulative Flow Diagram
+
+```{r CFD}
+library(dplyr)
+library(grid)
+library(gridExtra)
+library(scales)
+
+gerarCFDTimesJuntos <- function(dateBreaks, dateMinorBreaks) {
+  agruparPorData <- df.cfd %>%
+    group_by(Data) %>%
+    summarise('Backlog' = sum(Backlog), 
+              'Desenvolvimento' = sum(Desenvolvimento), 
+              'AWS Dev' = sum(AmbienteDev), 
+              'AWS Hml' = sum(AmbienteHml),
+              'Validacao PO' = sum(AguardandoPO),
+              'Pronto p/ PPD' = sum(AguardandoPpd),
+              'Em Pré Produção' = sum(EntregueTotal))
+  
+  DF1 <- melt(agruparPorData, id.var = "Data")
+  
+  cdf_canais_geral <- ggplot(DF1, aes(x = as.Date(Data, format = "%d/%m/%Y"), y = value, fill = variable)) +
+    geom_area() + 
+    geom_vline(data = df.cfd, aes(xintercept = as.Date(Data, format = "%d/%m/%Y")), color = 'black', linetype = "longdash") +
+    labs(x = "Semanas", y = "Contagem", fill = 'Etapas') +
+    scale_x_date(date_breaks = dateBreaks, date_minor_breaks = dateMinorBreaks, date_labels = "%d/%m") +
+    # theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+    scale_fill_brewer(palette="Spectral") +
+    theme_bw()
+}
+
+#CONFIGURACAO GRID
+grid.arrange(gerarCFDTimesJuntos(dateBreaks = "1 week", dateMinorBreaks = "1 day"), ncol=1)
+
+grid.rect(width = .99, height = .99, gp = gpar(lwd = 1, col = "black", fill = NA))
+```
+
+TeamA
+=======================================================================
+
+TeamB
+=======================================================================
