@@ -1,0 +1,120 @@
+---
+title: "MyTeam Dashboard"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+---
+
+```{r setup, include = FALSE}
+library(flexdashboard)
+library(ggplot2)
+library(dplyr)
+library(knitr)
+library(reshape2)
+library(grid)
+library(gridExtra)
+library(scales)
+library(pracma)
+library(zoo)
+
+# Trocar pelo nome do time
+Sys.setenv(TEAM = 'MyTeam')
+
+# Caminho onde estão os CSV -- HOME no Windows é a pasta Documentos
+Sys.setenv(DEMANDS_FILE_PATH = paste(Sys.getenv('HOME'), "/workspace/kanban-metrics-R/metrics/", Sys.getenv('TEAM'), "_demandas.csv", sep = ''))
+Sys.setenv(KANBAN_FILE_PATH = paste(Sys.getenv('HOME'), "/workspace/kanban-metrics-R/metrics/", Sys.getenv('TEAM'), "_kanban.csv", sep = ''))
+
+# Carrega a planilha de Demandas
+df.demands <- read.csv(Sys.getenv('DEMANDS_FILE_PATH'), header = TRUE, sep = ',')
+
+# Carrega a planilha de CFD
+df.cfd <- read.csv(Sys.getenv('KANBAN_FILE_PATH'), header = TRUE, sep = ',')
+
+# Calcula o tempo (dias corridos) em cada coluna do Kanban
+dev.time <- as.numeric((as.Date(as.character(df.demands$Dev), format="%d/%m/%Y") - as.Date(as.character(df.demands$Inicio), format="%d/%m/%Y")), units = 'days')
+aws.dev.time <- as.numeric((as.Date(as.character(df.demands$Hml), format="%d/%m/%Y") - as.Date(as.character(df.demands$Dev), format="%d/%m/%Y")), units = 'days')
+aws.hml.time <- as.numeric((as.Date(as.character(df.demands$PO), format="%d/%m/%Y") - as.Date(as.character(df.demands$Hml), format="%d/%m/%Y")), units = 'days')
+po.time <- as.numeric((as.Date(as.character(df.demands$ProntoPpd), format="%d/%m/%Y") - as.Date(as.character(df.demands$PO), format="%d/%m/%Y")), units = 'days')
+ppd.ready.time <- as.numeric((as.Date(as.character(df.demands$Ppd), format="%d/%m/%Y") - as.Date(as.character(df.demands$ProntoPpd), format="%d/%m/%Y")), units = 'days')
+
+# Calcula Touch Time, Queue Time e Lead Time
+touch.time <- as.numeric(dev.time + aws.dev.time + aws.hml.time, units = 'days')
+queue.time <- as.numeric(po.time + ppd.ready.time, units = 'days')
+lead.time <- as.numeric(touch.time + queue.time, units = 'days')
+
+# Monta um dataframe com os dias corridos calculados
+df.days <- data.frame(df.demands$Indice, dev.time, aws.dev.time, aws.hml.time, po.time, ppd.ready.time)
+colnames(df.days) <- c("Indice","Desenvolvimento", "AWS Dev", "AWS Hml", "Em Validação", "Pronto p/ Ppd")
+
+# Denormaliza os dados do dataframe
+df.days.melted <- melt(df.days, id.vars = "Indice")
+colnames(df.days.melted) <- c("Indice","Etapas", "Valores")
+
+# Número de PBI por Sprint
+pbi.by.sprint <- length(df.demands$Sprint) - match(unique(df.demands$Sprint),rev(df.demands$Sprint)) + 1
+
+# Monta dataframe para uso no Throughput e Qualidade
+sprints <- unique(df.demands$Sprint)
+
+df.throughput <- data.frame(df.demands$Indice, df.demands$Sprint, df.demands$Tipo)
+colnames(df.throughput) <- c("Indice", "Sprint", "Tipo")
+
+read_chunk("scripts/leadtime_v3.R")
+read_chunk("scripts/leadtime_breakdown.R")
+read_chunk("scripts/histogram_v3.R")
+read_chunk("scripts/throughput_v3.R")
+read_chunk("scripts/quality_v3.R")
+read_chunk("scripts/cfd_v3.R")
+```
+
+Lead Time
+=======================================================================
+
+Column {data-width=650}
+-----------------------------------------------------------------------
+
+### Lead Time Breakdown
+
+```{r Lead Time Breakdown}
+<<leadtimebreakdown>>
+```
+
+Column {data-width=350}
+-----------------------------------------------------------------------
+
+### Distribuição do Lead Time
+
+```{r Distribuição de Lead Time}
+<<leadtime>>
+```
+
+### Histograma de Lead Time
+
+```{r Histograma de Lead Time}
+<<histogram>>
+```
+
+Throughput/CFD
+=======================================================================
+
+Column {data-width=350}
+-----------------------------------------------------------------------
+
+### Qualidade das Demandas
+```{r Qualidade das Demandas}
+<<quality>>
+```
+
+### Entrega das Demandas
+```{r Entrega das Demandas}
+<<throughput>>
+```
+
+Column {data-width=650}
+-----------------------------------------------------------------------
+
+### Cumulative Flow Diagram (CFD)
+```{r CFD}
+<<cfd>>
+```

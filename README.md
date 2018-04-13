@@ -9,23 +9,21 @@
 4. Gerar ssh
 
 ### Requisitos
+- Ter feito o _git clone_ deste repositório
 - Ter R instalado
 -- Execute `R --version` para verificar se está instalado corretamente
 - Ter o RStudio instalado
-- Ter dois arquivos CSV (`NOMEDOTIME_demandas.csv` e `NOMEDOTIME_kanban.csv`) na pasta *metrics*
--- Estes arquivos **NÃO** devem ter as colunas modificadas
+- Ter um arquivo XLSX (`metricas_NOMEDOTIME.xlsx`) na pasta *metrics* deste repositório
+- Ter um arquivo CSV (`NOMEDOTIME_demandas.csv`) na pasta *metrics* deste repositório
+-- Este arquivo é utilizado para gerar todos os gráficos, com exceção do CFD
+- Ter um arquivo CSV (`NOMEDOTIME_kanban.csv`) na pasta *metrics* deste repositório
+-- Este arquivo é utilizado para gerar o CFD
+- Executar o arquivo `instal-packages.R` via RStudio na primeira vez, para garantir a instalação de todos os pacotes necessários
 
 ### Execução
-1. Abrir o arquivo `Indicadores.Rproj` (ele abrirá o RStudio)
-2. Abrir o arquivo `main.R` no RStudio
--- Trocar o nome do time `Sys.setenv(TEAM = 'RAC')`
--- Exemplos de opções são: Narcos, Pirates, RAC, Rogue, Targaryen, Sputnik e Stark
-3. Selecionar todo o código e executar
-4. Pegar as imagens na pasta _images/NOMETOTIME_
-
-#### Opções
-- No arquivo `lead_time_v2.R` existem algumas explicações para executar apenas ele (e não o `main.R` com os5 scripts)
--- A mesma lógica se aplica aos outros 4 arquivos (histogram, quality, throughput e cfd)
-- O `teste.Rmd` é um teste utilizando R e Markdown para montar um dashboard
--- Necessário instalar os pacotes `flexdashboard` e `rmarkdown`, além dos que estão no `main.R`
---- Pode ser instalado via RStudio, aba _packages_
+1. Abrir o arquivo `Veloe-Indicadores.Rproj` no RStudio
+2. Abrir o arquivo `dashboard.Rmd`
+2.1. Trocar o nome do time em `Sys.setenv(TEAM = 'MyTeam')`
+2.2. Trocar o nome do time em `title: "MyTeam Dashboard"`
+3. Executar o código (botão `Knit`)
+4. O Dashboard será gerado em uma nova janela, além de um arquivo HTML
